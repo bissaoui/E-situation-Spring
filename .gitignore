@@ -1,0 +1,6 @@
+.env
+target/
+.vscode/
+*.log
+*.err
+bundle-8082.js

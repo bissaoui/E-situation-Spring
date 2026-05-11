@@ -1,0 +1,236 @@
+﻿<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Situations</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; }
+        a.button { display: inline-block; padding: 0.5rem 0.9rem; background: #0a66c2; color: #fff; text-decoration: none; border-radius: 4px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
+        th, td { border: 1px solid #ddd; padding: 0.45rem; text-align: left; }
+        th { background: #f5f5f5; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; }
+        .import-box { margin-top: 1rem; margin-bottom: 1rem; padding: 0.8rem; background: #f7f9fc; border: 1px solid #d8e2ef; }
+        .ok { color: #0b7a2f; }
+        .err { color: #b00020; }
+        .col-idx { width: 48px; text-align: center; }
+        .col-benef { width: 170px; max-width: 170px; }
+        .col-date-ov { min-width: 140px; }
+        .col-projet { width: 120px; max-width: 120px; }
+        .amount { text-align: right; white-space: nowrap; }
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable .sort-indicator { font-size: 0.75rem; color: #666; margin-left: 0.2rem; }
+        .filter-row input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.25rem;
+            font-size: 0.8rem;
+        }
+        .be-links a { margin-right: 0.4rem; white-space: nowrap; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <h1>Situation List</h1>
+    <div>
+        <a class="button" th:href="@{/situations/new}">Add Situation</a>
+        <a class="button" th:href="@{/account/password}">Change Password</a>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit">Logout</button>
+        </form>
+    </div>
+</div>
+
+<div class="import-box">
+    <form th:action="@{/situations/import}" method="post" enctype="multipart/form-data">
+        <label for="file">Import file (CSV or Excel):</label>
+        <input id="file" name="file" type="file" accept=".csv,.xlsx,.xls" required>
+        <button type="submit">Import</button>
+    </form>
+    <p class="ok" th:if="${successMessage}" th:text="${successMessage}"></p>
+    <p class="err" th:if="${errorMessage}" th:text="${errorMessage}"></p>
+</div>
+
+<table id="situationsTable">
+    <thead>
+    <tr>
+        <th class="col-idx sortable">#<span class="sort-indicator"></span></th>
+        <th class="col-benef sortable">BENEFICAIRE<span class="sort-indicator"></span></th>
+        <th class="sortable">BE<span class="sort-indicator"></span></th>
+        <th class="col-date-ov sortable">DATE<span class="sort-indicator"></span></th>
+        <th class="sortable">OV<span class="sort-indicator"></span></th>
+        <th class="sortable">CHEQUE<span class="sort-indicator"></span></th>
+        <th class="sortable">MONTANT_OV/CHEQUE<span class="sort-indicator"></span></th>
+        <th class="sortable">BUDGET<span class="sort-indicator"></span></th>
+        <th class="sortable">Rubrique_budg<span class="sort-indicator"></span></th>
+        <th class="sortable">N°_OP<span class="sort-indicator"></span></th>
+        <th class="sortable">Montant_OP<span class="sort-indicator"></span></th>
+        <th class="sortable">Objet_dépense<span class="sort-indicator"></span></th>
+        <th class="sortable">ANNEE_D'ORIGINE<span class="sort-indicator"></span></th>
+        <th class="sortable">Situation<span class="sort-indicator"></span></th>
+        <th class="sortable">Date_Virement<span class="sort-indicator"></span></th>
+        <th class="col-projet sortable">Projet<span class="sort-indicator"></span></th>
+        <th>BE File</th>
+    </tr>
+    <tr class="filter-row">
+        <th><input type="text" data-col="0" placeholder="Filter #"></th>
+        <th><input type="text" data-col="1" placeholder="Filter BENEFICAIRE"></th>
+        <th><input type="text" data-col="2" placeholder="Filter BE"></th>
+        <th><input type="text" data-col="3" placeholder="Filter DATE"></th>
+        <th><input type="text" data-col="4" placeholder="Filter OV"></th>
+        <th><input type="text" data-col="5" placeholder="Filter CHEQUE"></th>
+        <th><input type="text" data-col="6" placeholder="Filter MONTANT"></th>
+        <th><input type="text" data-col="7" placeholder="Filter BUDGET"></th>
+        <th><input type="text" data-col="8" placeholder="Filter Rubrique"></th>
+        <th><input type="text" data-col="9" placeholder="Filter N°_OP"></th>
+        <th><input type="text" data-col="10" placeholder="Filter Montant_OP"></th>
+        <th><input type="text" data-col="11" placeholder="Filter Objet"></th>
+        <th><input type="text" data-col="12" placeholder="Filter ANNEE"></th>
+        <th><input type="text" data-col="13" placeholder="Filter Situation"></th>
+        <th><input type="text" data-col="14" placeholder="Filter Virement"></th>
+        <th><input type="text" data-col="15" placeholder="Filter Projet"></th>
+        <th><input type="text" data-col="16" placeholder="Filter file"></th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="s, stat : ${situations}">
+        <td class="col-idx" th:text="${stat.count}"></td>
+        <td class="col-benef" th:text="${s.beneficiaire}"></td>
+        <td th:text="${s.be}"></td>
+        <td class="col-date-ov" th:text="${s.dateOp}"></td>
+        <td th:text="${s.numeroOv}"></td>
+        <td th:text="${s.cheque}"></td>
+        <td class="amount" th:text="${s.montantOvCheque != null ? #strings.replace(#numbers.formatDecimal(s.montantOvCheque, 1, 'COMMA', 2, 'POINT'), ',', ' ') + ' DHS' : ''}"></td>
+        <td th:text="${s.budget}"></td>
+        <td th:text="${s.rubriqueBudg}"></td>
+        <td th:text="${s.numeroOp}"></td>
+        <td class="amount" th:text="${s.montantOp != null ? #strings.replace(#numbers.formatDecimal(s.montantOp, 1, 'COMMA', 2, 'POINT'), ',', ' ') + ' DHS' : ''}"></td>
+        <td th:text="${s.objetDepense}"></td>
+        <td th:text="${s.anneeOrigine}"></td>
+        <td th:text="${s.situation}"></td>
+        <td th:text="${s.dateVirement}"></td>
+        <td class="col-projet" th:text="${s.projet}"></td>
+        <td class="be-links">
+            <span th:if="${s.situation != null and #strings.containsIgnoreCase(s.situation, 'pay') and ((s.beUrl != null and !#strings.isEmpty(s.beUrl)) or (s.be != null and !#strings.isEmpty(s.be)) or (s.numeroOv != null and !#strings.isEmpty(s.numeroOv)))}">
+                <a th:href="@{/be-files/situation/{id}(id=${s.id})}" target="_blank">View</a>
+                <a th:href="@{/be-files/situation/{id}(id=${s.id},download=true)}">Download</a>
+            </span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+<script>
+    (function () {
+        const table = document.getElementById("situationsTable");
+        const tbody = table.querySelector("tbody");
+        const headers = Array.from(table.querySelectorAll("thead tr:first-child th.sortable"));
+        const filterInputs = Array.from(table.querySelectorAll(".filter-row input"));
+        const baseRows = Array.from(tbody.querySelectorAll("tr"));
+
+        const state = { sortCol: null, sortDir: "asc" };
+
+        function normalizeText(text) {
+            return (text || "").trim().toLowerCase();
+        }
+
+        function cellText(row, col) {
+            const cell = row.cells[col];
+            return cell ? cell.textContent.trim() : "";
+        }
+
+        function parseComparable(value) {
+            const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+            const numberPattern = /^-?\d+(\.\d+)?$/;
+
+            const compact = value.replace(/dhs/ig, "").replace(/\s/g, "").replace(/,/g, "");
+
+            if (datePattern.test(value)) {
+                return { type: "date", value: Date.parse(value) };
+            }
+            if (numberPattern.test(compact)) {
+                return { type: "number", value: parseFloat(compact) };
+            }
+            return { type: "text", value: normalizeText(value) };
+        }
+
+        function updateSortIndicators() {
+            headers.forEach((th, index) => {
+                const icon = th.querySelector(".sort-indicator");
+                if (!icon) {
+                    return;
+                }
+                if (state.sortCol === index) {
+                    icon.textContent = state.sortDir === "asc" ? "▲" : "▼";
+                } else {
+                    icon.textContent = "";
+                }
+            });
+        }
+
+        function applyTableState() {
+            const filters = filterInputs.map((input) => normalizeText(input.value));
+
+            let rows = baseRows.filter((row) =>
+                filters.every((filterValue, col) => {
+                    if (!filterValue) {
+                        return true;
+                    }
+                    return normalizeText(cellText(row, col)).includes(filterValue);
+                })
+            );
+
+            if (state.sortCol !== null) {
+                rows.sort((a, b) => {
+                    const av = parseComparable(cellText(a, state.sortCol));
+                    const bv = parseComparable(cellText(b, state.sortCol));
+
+                    if (av.type === bv.type) {
+                        if (av.value < bv.value) {
+                            return state.sortDir === "asc" ? -1 : 1;
+                        }
+                        if (av.value > bv.value) {
+                            return state.sortDir === "asc" ? 1 : -1;
+                        }
+                        return 0;
+                    }
+                    const left = normalizeText(cellText(a, state.sortCol));
+                    const right = normalizeText(cellText(b, state.sortCol));
+                    if (left < right) {
+                        return state.sortDir === "asc" ? -1 : 1;
+                    }
+                    if (left > right) {
+                        return state.sortDir === "asc" ? 1 : -1;
+                    }
+                    return 0;
+                });
+            }
+
+            tbody.innerHTML = "";
+            rows.forEach((row, index) => {
+                row.cells[0].textContent = String(index + 1);
+                tbody.appendChild(row);
+            });
+
+            updateSortIndicators();
+        }
+
+        headers.forEach((th, index) => {
+            th.addEventListener("click", () => {
+                if (state.sortCol === index) {
+                    state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+                } else {
+                    state.sortCol = index;
+                    state.sortDir = "asc";
+                }
+                applyTableState();
+            });
+        });
+
+        filterInputs.forEach((input) => {
+            input.addEventListener("input", applyTableState);
+        });
+    })();
+</script>
+</body>
+</html>

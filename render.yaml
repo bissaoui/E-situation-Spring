@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: situation-api
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /login
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: SERVER_ADDRESS
+        value: 0.0.0.0
+      - key: BE_IMPORT_SOURCE
+        value: onedrive
+      - key: APP_CORS_ALLOWED_ORIGIN_PATTERNS
+        sync: false
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: APP_ADMIN_PASSWORD
+        sync: false
+      - key: APP_USER_PASSWORD
+        sync: false
+      - key: APP_DG_PASSWORD
+        sync: false
+      - key: APP_DAF_PASSWORD
+        sync: false
+      - key: APP_DDZA_PASSWORD
+        sync: false
+      - key: APP_DDZO_PASSWORD
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: ONEDRIVE_USER_EMAIL
+        sync: false
+      - key: ONEDRIVE_FILE_PATH
+        value: ""
+      - key: ONEDRIVE_FOLDER_PATH
+        sync: false

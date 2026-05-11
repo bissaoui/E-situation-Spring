@@ -1,0 +1,9 @@
+.git
+.gitignore
+.vscode
+target
+.env
+*.log
+*.err
+bundle-8082.js
+README.md
