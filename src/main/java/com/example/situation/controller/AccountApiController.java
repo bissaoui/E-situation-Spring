@@ -28,6 +28,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -45,6 +47,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Tag(name = "Account API")
 @Validated
 public class AccountApiController {
+
+    private static final Logger log = LoggerFactory.getLogger(AccountApiController.class);
 
     private final PasswordManagementService passwordManagementService;
     private final AppUserRepository appUserRepository;
@@ -193,23 +197,31 @@ public class AccountApiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid multi-factor authentication code");
         }
 
-        user.setMfaEnabled(true);
-        appUserRepository.save(user);
-        UserDetails userDetails = appUserDetailsService.loadUserByUsername(user.getUsername());
-        String accessToken = jwtService.generateAccessToken(userDetails);
-        RefreshTokenService.IssuedToken refreshToken = refreshTokenService.issue(user, servletRequest);
-        auditService.logSensitiveAction("MFA_ENABLED", user.getUsername(), user.getUsername(), "Account MFA enrollment completed");
+        try {
+            user.setMfaEnabled(true);
+            appUserRepository.save(user);
+            UserDetails userDetails = appUserDetailsService.loadUserByUsername(user.getUsername());
+            String accessToken = jwtService.generateAccessToken(userDetails);
+            RefreshTokenService.IssuedToken refreshToken = refreshTokenService.issue(user, servletRequest);
+            auditService.logSensitiveAction("MFA_ENABLED", user.getUsername(), user.getUsername(), "Account MFA enrollment completed");
 
-        return ResponseEntity.ok(AuthResponse.builder()
-            .accessToken(accessToken)
-            .refreshToken(refreshToken.plainToken())
-            .tokenType("Bearer")
-            .expiresInSeconds(jwtService.getAccessExpirationSeconds())
-            .refreshExpiresInSeconds(refreshToken.expiresInSeconds())
-            .username(user.getUsername())
-            .role("ROLE_" + user.getRole())
-            .message("Multi-factor authentication enabled.")
-            .build());
+            return ResponseEntity.ok(AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken.plainToken())
+                .tokenType("Bearer")
+                .expiresInSeconds(jwtService.getAccessExpirationSeconds())
+                .refreshExpiresInSeconds(refreshToken.expiresInSeconds())
+                .username(user.getUsername())
+                .role("ROLE_" + user.getRole())
+                .message("Multi-factor authentication enabled.")
+                .build());
+        } catch (Exception ex) {
+            log.error("MFA activation failed after code verification for user {}", user.getUsername(), ex);
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "MFA activation failed after code verification. Check server logs for the exact cause."
+            );
+        }
     }
 
     private AppUser currentUser(Authentication authentication) {
