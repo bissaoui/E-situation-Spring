@@ -18,7 +18,8 @@ public class TotpService {
     private static final int SECRET_BYTES = 32;
     private static final int TIME_STEP_SECONDS = 30;
     private static final int OTP_DIGITS = 6;
-    private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final String PRIMARY_HMAC_ALGORITHM = "HmacSHA1";
+    private static final String LEGACY_HMAC_ALGORITHM = "HmacSHA256";
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final String issuer;
@@ -39,7 +40,9 @@ public class TotpService {
         }
         long currentStep = Instant.now().getEpochSecond() / TIME_STEP_SECONDS;
         for (long offset = -1; offset <= 1; offset++) {
-            if (buildCode(secret, currentStep + offset).equals(code)) {
+            long step = currentStep + offset;
+            if (buildCode(secret, step, PRIMARY_HMAC_ALGORITHM).equals(code)
+                || buildCode(secret, step, LEGACY_HMAC_ALGORITHM).equals(code)) {
                 return true;
             }
         }
@@ -52,17 +55,17 @@ public class TotpService {
         return "otpauth://totp/" + label
             + "?secret=" + urlEncode(secret)
             + "&issuer=" + urlEncode(issuer)
-            + "&algorithm=SHA256"
+            + "&algorithm=SHA1"
             + "&digits=" + OTP_DIGITS
             + "&period=" + TIME_STEP_SECONDS;
     }
 
-    private String buildCode(String secret, long timeStep) {
+    private String buildCode(String secret, long timeStep, String algorithm) {
         try {
             byte[] key = Base32Codec.decode(secret);
             byte[] counter = ByteBuffer.allocate(8).putLong(timeStep).array();
-            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
-            mac.init(new SecretKeySpec(key, HMAC_ALGORITHM));
+            Mac mac = Mac.getInstance(algorithm);
+            mac.init(new SecretKeySpec(key, algorithm));
             byte[] hmac = mac.doFinal(counter);
             int offset = hmac[hmac.length - 1] & 0x0f;
             int binary = ((hmac[offset] & 0x7f) << 24)
