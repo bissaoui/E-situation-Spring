@@ -1,6 +1,7 @@
 package com.example.situation.security;
 
 import com.example.situation.service.AppUserDetailsService;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,7 +30,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return !path.startsWith("/api/") || path.startsWith("/api/auth/");
+        return !(path.startsWith("/api/") || path.startsWith("/api/v1/"))
+            || path.startsWith("/api/auth/")
+            || path.startsWith("/api/v1/auth/");
     }
 
     @Override
@@ -44,15 +47,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7);
         try {
-            String username = jwtService.extractUsername(token);
+            Claims claims = jwtService.extractClaims(token);
+            String username = claims.getSubject();
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = appUserDetailsService.loadUserByUsername(username);
-                if (jwtService.isTokenValid(token, userDetails)) {
+                if (jwtService.isAccessTokenValid(token, userDetails)) {
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities()
                     );
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
+                    request.setAttribute("mfa_pending", jwtService.isMfaPending(claims));
                 }
             }
             filterChain.doFilter(request, response);

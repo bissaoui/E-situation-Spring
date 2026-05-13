@@ -6,6 +6,7 @@ import com.example.situation.repository.SituationRepository;
 import com.example.situation.security.ModelSanitizer;
 import com.example.situation.security.ProjetAccessService;
 import com.example.situation.security.ProjetAccessService.ProjetAccessScope;
+import com.example.situation.service.AuditService;
 import com.example.situation.service.SituationKpiService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping("/api/situations")
+@RequestMapping({"/api/situations", "/api/v1/situations"})
 @Tag(name = "Situations API")
 @Validated
 public class SituationApiController {
@@ -36,17 +37,20 @@ public class SituationApiController {
     private final ModelSanitizer modelSanitizer;
     private final ProjetAccessService projetAccessService;
     private final SituationKpiService situationKpiService;
+    private final AuditService auditService;
 
     public SituationApiController(
         SituationRepository situationRepository,
         ModelSanitizer modelSanitizer,
         ProjetAccessService projetAccessService,
-        SituationKpiService situationKpiService
+        SituationKpiService situationKpiService,
+        AuditService auditService
     ) {
         this.situationRepository = situationRepository;
         this.modelSanitizer = modelSanitizer;
         this.projetAccessService = projetAccessService;
         this.situationKpiService = situationKpiService;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -85,7 +89,9 @@ public class SituationApiController {
         modelSanitizer.sanitizeSituation(situation);
         ProjetAccessScope scope = resolveScope(authentication);
         assertCanAccessProjet(scope, situation.getProjet());
-        return situationRepository.save(situation);
+        Situation saved = situationRepository.save(situation);
+        auditService.logSensitiveAction("SITUATION_CREATED", actor(authentication), "situation:" + saved.getId(), saved.getProjet());
+        return saved;
     }
 
     @PutMapping("/{id}")
@@ -119,7 +125,9 @@ public class SituationApiController {
         existing.setProjet(input.getProjet());
         existing.setBeUrl(input.getBeUrl());
 
-        return situationRepository.save(existing);
+        Situation saved = situationRepository.save(existing);
+        auditService.logSensitiveAction("SITUATION_UPDATED", actor(authentication), "situation:" + saved.getId(), saved.getProjet());
+        return saved;
     }
 
     @DeleteMapping("/{id}")
@@ -131,6 +139,7 @@ public class SituationApiController {
             .orElseThrow(() -> new IllegalArgumentException("Invalid situation id: " + id));
         assertCanAccessProjet(scope, existing.getProjet());
         situationRepository.deleteById(id);
+        auditService.logSensitiveAction("SITUATION_DELETED", actor(authentication), "situation:" + id, existing.getProjet());
     }
 
     private ProjetAccessScope resolveScope(Authentication authentication) {
@@ -149,5 +158,9 @@ public class SituationApiController {
 
     private static ResponseStatusException forbiddenNoProjetScope() {
         return new ResponseStatusException(HttpStatus.FORBIDDEN, "No projet scope assigned to this user");
+    }
+
+    private static String actor(Authentication authentication) {
+        return authentication == null ? "-" : authentication.getName();
     }
 }

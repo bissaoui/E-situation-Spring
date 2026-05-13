@@ -24,15 +24,20 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private final Map<String, WindowCounter> counters = new ConcurrentHashMap<>();
     private final int maxRequestsPerMinute;
+    private final int authMaxRequestsPerMinute;
 
-    public ApiRateLimitFilter(@Value("${security.rate-limit.max-requests-per-minute:120}") int maxRequestsPerMinute) {
+    public ApiRateLimitFilter(
+        @Value("${security.rate-limit.max-requests-per-minute:120}") int maxRequestsPerMinute,
+        @Value("${security.rate-limit.auth-max-requests-per-minute:10}") int authMaxRequestsPerMinute
+    ) {
         this.maxRequestsPerMinute = maxRequestsPerMinute;
+        this.authMaxRequestsPerMinute = authMaxRequestsPerMinute;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return !path.startsWith("/api/");
+        return !(path.startsWith("/api/") || path.startsWith("/api/v1/"));
     }
 
     @Override
@@ -41,7 +46,8 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
         long now = System.currentTimeMillis();
         long windowMs = Duration.ofMinutes(1).toMillis();
-        String key = request.getRemoteAddr() + "|" + request.getRequestURI();
+        String key = resolveClientIp(request) + "|" + request.getRequestURI();
+        int limit = isAuthenticationRequest(request) ? authMaxRequestsPerMinute : maxRequestsPerMinute;
 
         WindowCounter counter = counters.computeIfAbsent(key, k -> {
             WindowCounter wc = new WindowCounter();
@@ -54,14 +60,27 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
                 counter.windowStartMs = now;
                 counter.count.set(0);
             }
-            if (counter.count.incrementAndGet() > maxRequestsPerMinute) {
+            if (counter.count.incrementAndGet() > limit) {
                 response.setStatus(429);
                 response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                response.getWriter().write("{\"error\":\"Too many requests\"}");
+                response.getWriter().write("{\"error\":\"Too many requests. Please wait before trying again.\"}");
                 return;
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private static boolean isAuthenticationRequest(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path.startsWith("/api/auth/") || path.startsWith("/api/v1/auth/");
+    }
+
+    private static String resolveClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

@@ -4,15 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Situation</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 2rem; }
-        form { display: grid; gap: 0.6rem; max-width: 900px; }
-        input { padding: 0.5rem; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
-    </style>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body>
+<div class="container">
 <h1>Create Situation</h1>
+
+<div class="notice small">
+    Les donnees saisies dans ce formulaire sont utilisees uniquement pour la gestion des situations administratives et financieres autorisees.
+    <a th:href="@{/privacy}">Notice de confidentialite</a>
+</div>
 
 <form th:action="@{/situations}" th:object="${situation}" method="post">
     <div class="grid">
@@ -39,5 +40,6 @@
         <a th:href="@{/situations}">Cancel</a>
     </div>
 </form>
+</div>
 </body>
 </html>

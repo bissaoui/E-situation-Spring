@@ -99,7 +99,7 @@ public class SituationController {
             int imported = situationImportService.importFile(file);
             redirectAttributes.addFlashAttribute("successMessage", imported + " row(s) imported successfully.");
         } catch (IllegalArgumentException | IOException ex) {
-            redirectAttributes.addFlashAttribute("errorMessage", "Import failed: " + ex.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", "Import failed. Please verify the file type and content.");
         }
         return "redirect:/situations";
     }

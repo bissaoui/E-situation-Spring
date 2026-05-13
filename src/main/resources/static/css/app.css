@@ -1,0 +1,192 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 2rem;
+    color: #1d2433;
+}
+
+.container {
+    max-width: 900px;
+    margin: 2rem auto;
+}
+
+.container.narrow {
+    max-width: 520px;
+}
+
+h1 {
+    margin-top: 0;
+}
+
+input,
+button,
+textarea {
+    font: inherit;
+}
+
+input,
+textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.6rem;
+    margin-top: 0.2rem;
+    margin-bottom: 0.8rem;
+}
+
+button,
+a.button {
+    display: inline-block;
+    padding: 0.6rem 1rem;
+    border: 0;
+    border-radius: 4px;
+    background: #0a66c2;
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+a.button.secondary,
+.link-button {
+    background: #f1f4f8;
+    color: #1d2433;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.actions,
+.page-actions {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.inline-form {
+    display: inline;
+}
+
+.notice {
+    margin: 1rem 0;
+    padding: 0.9rem 1rem;
+    background: #f7f9fc;
+    border: 1px solid #d8e2ef;
+    border-radius: 8px;
+}
+
+.notice.small {
+    font-size: 0.92rem;
+}
+
+.error {
+    color: #b00020;
+}
+
+.ok,
+.success {
+    color: #0b7a2f;
+}
+
+.import-box,
+.card {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: #f7f9fc;
+    border: 1px solid #d8e2ef;
+    border-radius: 8px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+}
+
+.footer-links {
+    margin-top: 1rem;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+th,
+td {
+    border: 1px solid #ddd;
+    padding: 0.45rem;
+    text-align: left;
+}
+
+th {
+    background: #f5f5f5;
+}
+
+.col-idx {
+    width: 48px;
+    text-align: center;
+}
+
+.col-benef {
+    width: 170px;
+    max-width: 170px;
+}
+
+.col-date-ov {
+    min-width: 140px;
+}
+
+.col-projet {
+    width: 120px;
+    max-width: 120px;
+}
+
+.amount {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sortable .sort-indicator {
+    font-size: 0.75rem;
+    color: #666;
+    margin-left: 0.2rem;
+}
+
+.filter-row input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.25rem;
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.be-links a {
+    margin-right: 0.4rem;
+    white-space: nowrap;
+}
+
+@media (max-width: 840px) {
+    body {
+        margin: 1rem;
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}

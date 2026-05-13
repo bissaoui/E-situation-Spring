@@ -9,17 +9,9 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
-public class ChangePasswordRequest {
+public class PrivacyAcknowledgementRequest {
 
     @NotBlank
-    @Size(max = 120)
-    private String currentPassword;
-
-    @NotBlank
-    @Size(min = 12, max = 120)
-    private String newPassword;
-
-    @NotBlank
-    @Size(min = 12, max = 120)
-    private String confirmNewPassword;
+    @Size(max = 40)
+    private String version;
 }

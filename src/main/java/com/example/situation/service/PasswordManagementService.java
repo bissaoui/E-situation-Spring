@@ -11,28 +11,35 @@ public class PasswordManagementService {
 
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicyService passwordPolicyService;
 
-    public PasswordManagementService(AppUserRepository appUserRepository, PasswordEncoder passwordEncoder) {
+    public PasswordManagementService(
+        AppUserRepository appUserRepository,
+        PasswordEncoder passwordEncoder,
+        PasswordPolicyService passwordPolicyService
+    ) {
         this.appUserRepository = appUserRepository;
         this.passwordEncoder = passwordEncoder;
+        this.passwordPolicyService = passwordPolicyService;
     }
 
     public void changePassword(String username, ChangePasswordRequest request) {
-        AppUser user = appUserRepository.findByUsername(username)
-            .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
+        AppUser user = appUserRepository.findByUsernameIgnoreCase(username)
+            .orElseThrow(() -> new IllegalArgumentException("Unable to update password."));
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("Current password is incorrect");
+            throw new IllegalArgumentException("Unable to update password.");
         }
 
         if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
-            throw new IllegalArgumentException("New password confirmation does not match");
+            throw new IllegalArgumentException("Unable to update password.");
         }
 
         if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("New password must be different from current password");
+            throw new IllegalArgumentException("Unable to update password.");
         }
 
+        passwordPolicyService.validate(request.getNewPassword(), user.getUsername());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         appUserRepository.save(user);
     }

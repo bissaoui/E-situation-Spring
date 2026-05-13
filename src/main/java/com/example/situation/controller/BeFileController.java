@@ -5,14 +5,15 @@ import com.example.situation.model.Situation;
 import com.example.situation.repository.SituationRepository;
 import com.example.situation.security.ProjetAccessService;
 import com.example.situation.security.ProjetAccessService.ProjetAccessScope;
+import com.example.situation.security.RemoteBeUrlValidator;
+import com.example.situation.service.AuditService;
 import com.example.situation.service.BeFileService;
 import com.example.situation.service.OneDriveBatchImportService;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.util.UriComponentsBuilder;
 
 @RestController
 public class BeFileController {
@@ -41,22 +41,28 @@ public class BeFileController {
     private final BeFileService beFileService;
     private final OneDriveBatchImportService oneDriveBatchImportService;
     private final ProjetAccessService projetAccessService;
+    private final RemoteBeUrlValidator remoteBeUrlValidator;
+    private final AuditService auditService;
     private final RestClient restClient;
 
     public BeFileController(
         SituationRepository situationRepository,
         BeFileService beFileService,
         OneDriveBatchImportService oneDriveBatchImportService,
-        ProjetAccessService projetAccessService
+        ProjetAccessService projetAccessService,
+        RemoteBeUrlValidator remoteBeUrlValidator,
+        AuditService auditService
     ) {
         this.situationRepository = situationRepository;
         this.beFileService = beFileService;
         this.oneDriveBatchImportService = oneDriveBatchImportService;
         this.projetAccessService = projetAccessService;
+        this.remoteBeUrlValidator = remoteBeUrlValidator;
+        this.auditService = auditService;
         this.restClient = RestClient.builder().build();
     }
 
-    @GetMapping({"/be-files/situation/{id}", "/api/be-files/situation/{id}"})
+    @GetMapping({"/be-files/situation/{id}", "/api/be-files/situation/{id}", "/api/v1/be-files/situation/{id}"})
     public ResponseEntity<?> resolveBySituationId(
         @PathVariable Long id,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
@@ -72,30 +78,35 @@ public class BeFileController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
-        Situation s = situationOpt.get();
-        if (!projetAccessService.canAccess(scope, s.getProjet())) {
+        Situation situation = situationOpt.get();
+        if (!projetAccessService.canAccess(scope, situation.getProjet())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        log.info("BE request by situation id={}, download={}", id, download);
-        String downloadFilename = beFileService.buildDownloadFilename(firstNonBlank(s.getBe(), s.getNumeroOv(), id.toString()));
-        if (s.getBeUrl() != null && !s.getBeUrl().isBlank()) {
-            if (download) {
-                return serveRemotePdf(s.getBeUrl(), downloadFilename, true);
-            }
-            return redirectToCloud(s.getBeUrl(), false);
+        auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "situation:" + id, "download=" + download);
+        String downloadFilename = beFileService.buildDownloadFilename(
+            firstNonBlank(situation.getBe(), situation.getNumeroOv(), id.toString())
+        );
+        if (situation.getBeUrl() != null && !situation.getBeUrl().isBlank()) {
+            return download
+                ? serveRemotePdf(situation.getBeUrl(), downloadFilename, true)
+                : redirectToCloud(situation.getBeUrl(), false);
         }
 
-        if (s.getBe() != null && !s.getBe().isBlank()) {
-            return servePdf(s.getBe(), downloadFilename, download);
+        if (situation.getBe() != null && !situation.getBe().isBlank()) {
+            return servePdf(situation.getBe(), downloadFilename, download);
         }
-        if (s.getNumeroOv() != null && !s.getNumeroOv().isBlank()) {
-            return servePdf(s.getNumeroOv(), downloadFilename, download);
+        if (situation.getNumeroOv() != null && !situation.getNumeroOv().isBlank()) {
+            return servePdf(situation.getNumeroOv(), downloadFilename, download);
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
-    @GetMapping({"/be-files/situation/{id}/metadata", "/api/be-files/situation/{id}/metadata"})
+    @GetMapping({
+        "/be-files/situation/{id}/metadata",
+        "/api/be-files/situation/{id}/metadata",
+        "/api/v1/be-files/situation/{id}/metadata"
+    })
     public ResponseEntity<?> metadataBySituationId(
         @PathVariable Long id,
         Authentication authentication
@@ -110,16 +121,18 @@ public class BeFileController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
-        Situation s = situationOpt.get();
-        if (!projetAccessService.canAccess(scope, s.getProjet())) {
+        Situation situation = situationOpt.get();
+        if (!projetAccessService.canAccess(scope, situation.getProjet())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        String downloadFilename = beFileService.buildDownloadFilename(firstNonBlank(s.getBe(), s.getNumeroOv(), id.toString()));
-        return resolveMetadataForSituation(s, downloadFilename);
+        String downloadFilename = beFileService.buildDownloadFilename(
+            firstNonBlank(situation.getBe(), situation.getNumeroOv(), id.toString())
+        );
+        return resolveMetadataForSituation(situation, downloadFilename);
     }
 
-    @GetMapping({"/be-files/{beRef}", "/api/be-files/{beRef}"})
+    @GetMapping({"/be-files/{beRef}", "/api/be-files/{beRef}", "/api/v1/be-files/{beRef}"})
     public ResponseEntity<?> resolveByBeRef(
         @PathVariable String beRef,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
@@ -136,6 +149,7 @@ public class BeFileController {
         }
         if (situationOpt.isEmpty()) {
             if (scope == ProjetAccessScope.ALL) {
+                auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "beRef:" + beRef, "download=" + download);
                 return servePdf(beRef, beFileService.buildDownloadFilename(beRef), download);
             }
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -145,18 +159,19 @@ public class BeFileController {
         String downloadFilename = beFileService.buildDownloadFilename(
             firstNonBlank(matchedSituation.getBe(), matchedSituation.getNumeroOv(), beRef)
         );
+        auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "beRef:" + beRef, "download=" + download);
+
         if (matchedSituation.getBeUrl() != null && !matchedSituation.getBeUrl().isBlank()) {
-            if (download) {
-                return serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true);
-            }
-            return redirectToCloud(matchedSituation.getBeUrl(), false);
+            return download
+                ? serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true)
+                : redirectToCloud(matchedSituation.getBeUrl(), false);
         }
 
         String localBeReference = firstNonBlank(matchedSituation.getBe(), matchedSituation.getNumeroOv(), beRef);
         return servePdf(localBeReference, downloadFilename, download);
     }
 
-    @GetMapping({"/be-files/{beRef}/metadata", "/api/be-files/{beRef}/metadata"})
+    @GetMapping({"/be-files/{beRef}/metadata", "/api/be-files/{beRef}/metadata", "/api/v1/be-files/{beRef}/metadata"})
     public ResponseEntity<?> metadataByBeRef(
         @PathVariable String beRef,
         Authentication authentication
@@ -186,32 +201,26 @@ public class BeFileController {
     }
 
     private ResponseEntity<Void> redirectToCloud(String beUrl, boolean download) {
-        URI target = UriComponentsBuilder.fromUriString(beUrl.trim())
-            .replaceQueryParam("download", download ? "1" : "0")
-            .build(true)
-            .toUri();
-        log.info("Redirecting to cloud BE URL='{}' (download={})", target, download);
+        var target = remoteBeUrlValidator.validate(beUrl, download);
+        log.info("Redirecting to approved remote BE host='{}' download={}", target.getHost(), download);
         return ResponseEntity.status(HttpStatus.FOUND)
             .header(HttpHeaders.LOCATION, target.toString())
             .build();
     }
 
     private ResponseEntity<Resource> servePdf(String beRef, String downloadFilename, boolean download) throws IOException {
-        log.info("Local BE file request for beRef='{}', download={}, basePath='{}'",
-            beRef, download, beFileService.getBasePathDisplay());
         Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
         if (fileOpt.isPresent()) {
             return serveLocalPdf(fileOpt.get(), downloadFilename, download);
         }
 
-        log.info("Local BE file not found for beRef='{}'. Trying OneDrive folder lookup.", beRef);
         Optional<OneDriveBatchImportService.OneDriveFileDescriptor> cloudFile =
             oneDriveBatchImportService.findPdfByReference(beRef);
         if (cloudFile.isPresent()) {
             return serveOneDrivePdf(cloudFile.get(), downloadFilename, download);
         }
 
-        log.warn("BE file not found for beRef='{}' in local storage or OneDrive.", beRef);
+        log.warn("BE file not found for reference='{}'.", beRef);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
@@ -235,7 +244,6 @@ public class BeFileController {
         String beRef,
         String downloadFilename
     ) throws IOException {
-        log.info("BE metadata request for beRef='{}', basePath='{}'", beRef, beFileService.getBasePathDisplay());
         Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
         if (fileOpt.isPresent()) {
             return ResponseEntity.ok(buildMetadataResponse(downloadFilename, Files.size(fileOpt.get()), "LOCAL"));
@@ -268,7 +276,6 @@ public class BeFileController {
         String downloadFilename,
         boolean download
     ) throws IOException {
-        log.info("Streaming BE PDF from OneDrive: name='{}', itemId='{}'", fileDescriptor.name(), fileDescriptor.itemId());
         byte[] payload;
         try (InputStream inputStream = oneDriveBatchImportService.downloadFile(fileDescriptor)) {
             payload = inputStream.readAllBytes();
@@ -285,11 +292,8 @@ public class BeFileController {
     }
 
     private ResponseEntity<Resource> serveRemotePdf(String beUrl, String downloadFilename, boolean download) {
-        URI target = UriComponentsBuilder.fromUriString(beUrl.trim())
-            .replaceQueryParam("download", download ? "1" : "0")
-            .build(true)
-            .toUri();
-        log.info("Streaming remote BE URL='{}' with download filename='{}'", target, downloadFilename);
+        var target = remoteBeUrlValidator.validate(beUrl, download);
+        log.info("Streaming remote BE from approved host='{}' with download filename='{}'", target.getHost(), downloadFilename);
 
         byte[] payload = restClient.get()
             .uri(target)
@@ -308,21 +312,17 @@ public class BeFileController {
     }
 
     private BeFileMetadataResponse resolveRemotePdfMetadata(String beUrl, String downloadFilename) {
-        URI target = UriComponentsBuilder.fromUriString(beUrl.trim())
-            .replaceQueryParam("download", "1")
-            .build(true)
-            .toUri();
-        log.info("Fetching remote BE metadata for URL='{}'", target);
+        var target = remoteBeUrlValidator.validate(beUrl, true);
         return buildMetadataResponse(downloadFilename, fetchRemoteContentLength(target), "REMOTE");
     }
 
-    private Long fetchRemoteContentLength(URI target) {
+    private Long fetchRemoteContentLength(java.net.URI target) {
         try {
             return restClient.head()
                 .uri(target)
                 .exchange((request, response) -> {
                     if (response.getStatusCode().is3xxRedirection()) {
-                        URI redirectLocation = response.getHeaders().getLocation();
+                        var redirectLocation = response.getHeaders().getLocation();
                         return redirectLocation == null ? null : fetchRemoteContentLength(redirectLocation);
                     }
                     if (!response.getStatusCode().is2xxSuccessful()) {
@@ -331,7 +331,7 @@ public class BeFileController {
                     return toNullableLength(response.getHeaders().getContentLength());
                 });
         } catch (Exception ex) {
-            log.warn("Remote BE metadata lookup failed for URL='{}': {}", target, ex.getMessage());
+            log.warn("Remote BE metadata lookup failed for host='{}': {}", target.getHost(), ex.getMessage());
             return null;
         }
     }
@@ -386,5 +386,9 @@ public class BeFileController {
 
     private static Long toNullableLength(long value) {
         return value >= 0 ? value : null;
+    }
+
+    private static String actor(Authentication authentication) {
+        return authentication == null ? "-" : authentication.getName();
     }
 }

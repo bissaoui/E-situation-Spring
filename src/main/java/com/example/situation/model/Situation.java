@@ -1,5 +1,7 @@
 package com.example.situation.model;
 
+import com.example.situation.compliance.DataClassification;
+import com.example.situation.compliance.DataClassificationLevel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -18,6 +20,7 @@ import lombok.Setter;
 
 @Entity
 @Table(name = "situation")
+@DataClassification(DataClassificationLevel.CONFIDENTIEL)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -87,7 +90,7 @@ public class Situation {
     private String projet;
 
     @Size(max = 1000)
-    @Pattern(regexp = "^(https?://.*)?$", message = "beUrl must start with http:// or https://")
+    @Pattern(regexp = "^(https://.*)?$", message = "beUrl must start with https://")
     @Column(name = "BE_URL")
     private String beUrl;
 }

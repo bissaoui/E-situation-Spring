@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confidentialite</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="container">
+    <h1>Notice de Confidentialite</h1>
+
+    <div class="notice">
+        <p>Cette application collecte uniquement les donnees necessaires a l'authentification, a la gestion des situations administratives et a la securisation des acces.</p>
+        <p>Les journaux de securite, les tentatives de connexion et les actions sensibles peuvent etre conserves pour la prevention des abus, la traçabilite et la reponse aux incidents.</p>
+    </div>
+
+    <div class="card">
+        <h2>Finalites</h2>
+        <p>Gestion des comptes, controle d'acces, consultation des situations, protection des documents et suivi des operations sensibles.</p>
+
+        <h2>Donnees traitees</h2>
+        <p>Identifiant utilisateur, role, donnees de journalisation de securite, informations de situations et metadonnees de telechargement lorsque necessaire.</p>
+
+        <h2>Vos droits</h2>
+        <p>Vous pouvez demander l'acces a vos donnees, la rectification, l'export de votre profil, ainsi qu'une demande de suppression via la section "Mon Compte" de l'application ou l'API de compte.</p>
+
+        <h2>Contact interne</h2>
+        <p>Pour les demandes CNDP, de retention ou d'opposition, rapprochez-vous de l'administrateur metier ou du responsable de traitement de votre organisme.</p>
+    </div>
+
+    <div class="footer-links">
+        <a class="button secondary" th:href="@{/login}">Retour</a>
+    </div>
+</div>
+</body>
+</html>

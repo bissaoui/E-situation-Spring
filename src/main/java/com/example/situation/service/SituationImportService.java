@@ -18,9 +18,11 @@ import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -35,6 +37,17 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class SituationImportService {
+
+    private static final long MAX_UPLOAD_BYTES = 10L * 1024L * 1024L;
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(".csv", ".xls", ".xlsx");
+    private static final Set<String> ALLOWED_CONTENT_TYPES = new HashSet<>(Set.of(
+        "text/csv",
+        "application/csv",
+        "text/plain",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/octet-stream"
+    ));
 
     private static final DateTimeFormatter[] DATE_FORMATS = new DateTimeFormatter[] {
         DateTimeFormatter.ISO_LOCAL_DATE,
@@ -63,6 +76,7 @@ public class SituationImportService {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Please select a non-empty file.");
         }
+        validateMultipartFile(file);
 
         return importFile(file.getOriginalFilename(), file.getInputStream());
     }
@@ -482,6 +496,26 @@ public class SituationImportService {
         long commas = line.chars().filter(ch -> ch == ',').count();
         long semicolons = line.chars().filter(ch -> ch == ';').count();
         return semicolons > commas ? ';' : ',';
+    }
+
+    private static void validateMultipartFile(MultipartFile file) {
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().trim().toLowerCase(Locale.ROOT);
+        boolean allowedExtension = ALLOWED_EXTENSIONS.stream().anyMatch(filename::endsWith);
+        if (!allowedExtension) {
+            throw new IllegalArgumentException("Unsupported file type.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.isBlank()) {
+            String normalizedType = contentType.trim().toLowerCase(Locale.ROOT);
+            if (!ALLOWED_CONTENT_TYPES.contains(normalizedType)) {
+                throw new IllegalArgumentException("Unsupported file type.");
+            }
+        }
+
+        if (file.getSize() > MAX_UPLOAD_BYTES) {
+            throw new IllegalArgumentException("File is too large.");
+        }
     }
 
     private static String normalize(String input) {
