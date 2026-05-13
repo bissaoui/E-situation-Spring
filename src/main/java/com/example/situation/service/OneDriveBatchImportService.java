@@ -193,6 +193,7 @@ public class OneDriveBatchImportService {
         }
 
         uri.append("?$select=id,name,eTag,lastModifiedDateTime,file");
+        uri.append(",size");
         return URI.create(uri.toString());
     }
 
@@ -292,7 +293,8 @@ public class OneDriveBatchImportService {
         String itemId,
         String name,
         String eTag,
-        OffsetDateTime lastModifiedDateTime
+        OffsetDateTime lastModifiedDateTime,
+        Long size
     ) {
         public String importSignature() {
             String modified = lastModifiedDateTime == null ? "" : lastModifiedDateTime.toString();
@@ -310,6 +312,7 @@ public class OneDriveBatchImportService {
         String name,
         String eTag,
         OffsetDateTime lastModifiedDateTime,
+        Long size,
         GraphFileFacet file
     ) {
         private boolean isFile() {
@@ -321,7 +324,7 @@ public class OneDriveBatchImportService {
         }
 
         private OneDriveFileDescriptor toDescriptor() {
-            return new OneDriveFileDescriptor(id, name, eTag, lastModifiedDateTime);
+            return new OneDriveFileDescriptor(id, name, eTag, lastModifiedDateTime, size);
         }
     }
 

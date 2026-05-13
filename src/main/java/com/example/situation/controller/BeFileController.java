@@ -1,5 +1,6 @@
 package com.example.situation.controller;
 
+import com.example.situation.dto.BeFileMetadataResponse;
 import com.example.situation.model.Situation;
 import com.example.situation.repository.SituationRepository;
 import com.example.situation.security.ProjetAccessService;
@@ -94,6 +95,30 @@ public class BeFileController {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
+    @GetMapping({"/be-files/situation/{id}/metadata", "/api/be-files/situation/{id}/metadata"})
+    public ResponseEntity<?> metadataBySituationId(
+        @PathVariable Long id,
+        Authentication authentication
+    ) throws IOException {
+        ProjetAccessScope scope = projetAccessService.resolveScope(authentication);
+        if (scope == ProjetAccessScope.NONE) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Optional<Situation> situationOpt = situationRepository.findById(id);
+        if (situationOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        Situation s = situationOpt.get();
+        if (!projetAccessService.canAccess(scope, s.getProjet())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        String downloadFilename = beFileService.buildDownloadFilename(firstNonBlank(s.getBe(), s.getNumeroOv(), id.toString()));
+        return resolveMetadataForSituation(s, downloadFilename);
+    }
+
     @GetMapping({"/be-files/{beRef}", "/api/be-files/{beRef}"})
     public ResponseEntity<?> resolveByBeRef(
         @PathVariable String beRef,
@@ -131,6 +156,35 @@ public class BeFileController {
         return servePdf(localBeReference, downloadFilename, download);
     }
 
+    @GetMapping({"/be-files/{beRef}/metadata", "/api/be-files/{beRef}/metadata"})
+    public ResponseEntity<?> metadataByBeRef(
+        @PathVariable String beRef,
+        Authentication authentication
+    ) throws IOException {
+        ProjetAccessScope scope = projetAccessService.resolveScope(authentication);
+        if (scope == ProjetAccessScope.NONE) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Optional<Situation> situationOpt = findByBeReference(beRef, scope);
+        if (situationOpt.isEmpty()) {
+            situationOpt = findByNumeroOvReference(beRef, scope);
+        }
+
+        if (situationOpt.isEmpty()) {
+            if (scope == ProjetAccessScope.ALL) {
+                return resolvePdfMetadata(beRef, beFileService.buildDownloadFilename(beRef));
+            }
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        Situation matchedSituation = situationOpt.get();
+        String downloadFilename = beFileService.buildDownloadFilename(
+            firstNonBlank(matchedSituation.getBe(), matchedSituation.getNumeroOv(), beRef)
+        );
+        return resolveMetadataForSituation(matchedSituation, downloadFilename);
+    }
+
     private ResponseEntity<Void> redirectToCloud(String beUrl, boolean download) {
         URI target = UriComponentsBuilder.fromUriString(beUrl.trim())
             .replaceQueryParam("download", download ? "1" : "0")
@@ -158,6 +212,41 @@ public class BeFileController {
         }
 
         log.warn("BE file not found for beRef='{}' in local storage or OneDrive.", beRef);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+    }
+
+    private ResponseEntity<BeFileMetadataResponse> resolveMetadataForSituation(
+        Situation situation,
+        String downloadFilename
+    ) throws IOException {
+        if (situation.getBeUrl() != null && !situation.getBeUrl().isBlank()) {
+            return ResponseEntity.ok(resolveRemotePdfMetadata(situation.getBeUrl(), downloadFilename));
+        }
+
+        String localBeReference = firstNonBlank(
+            situation.getBe(),
+            situation.getNumeroOv(),
+            downloadFilename
+        );
+        return resolvePdfMetadata(localBeReference, downloadFilename);
+    }
+
+    private ResponseEntity<BeFileMetadataResponse> resolvePdfMetadata(
+        String beRef,
+        String downloadFilename
+    ) throws IOException {
+        log.info("BE metadata request for beRef='{}', basePath='{}'", beRef, beFileService.getBasePathDisplay());
+        Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
+        if (fileOpt.isPresent()) {
+            return ResponseEntity.ok(buildMetadataResponse(downloadFilename, Files.size(fileOpt.get()), "LOCAL"));
+        }
+
+        Optional<OneDriveBatchImportService.OneDriveFileDescriptor> cloudFile =
+            oneDriveBatchImportService.findPdfByReference(beRef);
+        if (cloudFile.isPresent()) {
+            return ResponseEntity.ok(buildMetadataResponse(downloadFilename, toNullableLength(cloudFile.get().size()), "ONEDRIVE"));
+        }
+
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
@@ -218,6 +307,39 @@ public class BeFileController {
             .body(new ByteArrayResource(payload));
     }
 
+    private BeFileMetadataResponse resolveRemotePdfMetadata(String beUrl, String downloadFilename) {
+        URI target = UriComponentsBuilder.fromUriString(beUrl.trim())
+            .replaceQueryParam("download", "1")
+            .build(true)
+            .toUri();
+        log.info("Fetching remote BE metadata for URL='{}'", target);
+        return buildMetadataResponse(downloadFilename, fetchRemoteContentLength(target), "REMOTE");
+    }
+
+    private Long fetchRemoteContentLength(URI target) {
+        try {
+            return restClient.head()
+                .uri(target)
+                .exchange((request, response) -> {
+                    if (response.getStatusCode().is3xxRedirection()) {
+                        URI redirectLocation = response.getHeaders().getLocation();
+                        return redirectLocation == null ? null : fetchRemoteContentLength(redirectLocation);
+                    }
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        return null;
+                    }
+                    return toNullableLength(response.getHeaders().getContentLength());
+                });
+        } catch (Exception ex) {
+            log.warn("Remote BE metadata lookup failed for URL='{}': {}", target, ex.getMessage());
+            return null;
+        }
+    }
+
+    private BeFileMetadataResponse buildMetadataResponse(String fileName, Long contentLength, String source) {
+        return new BeFileMetadataResponse(fileName, contentLength, source);
+    }
+
     private ContentDisposition buildDisposition(String filename, boolean download) {
         return download
             ? ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build()
@@ -256,5 +378,13 @@ public class BeFileController {
             return second;
         }
         return fallback;
+    }
+
+    private static Long toNullableLength(Long value) {
+        return value != null && value >= 0 ? value : null;
+    }
+
+    private static Long toNullableLength(long value) {
+        return value >= 0 ? value : null;
     }
 }
