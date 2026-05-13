@@ -13,6 +13,7 @@ import com.example.situation.model.AppUser;
 import com.example.situation.repository.SituationRepository;
 import com.example.situation.repository.AppUserRepository;
 import com.example.situation.security.JwtService;
+import com.example.situation.security.MfaQrCodeService;
 import com.example.situation.security.ProjetAccessService;
 import com.example.situation.security.ProjetAccessService.ProjetAccessScope;
 import com.example.situation.security.TotpService;
@@ -50,6 +51,7 @@ public class AccountApiController {
     private final SituationRepository situationRepository;
     private final ProjetAccessService projetAccessService;
     private final TotpService totpService;
+    private final MfaQrCodeService mfaQrCodeService;
     private final LoginSecurityService loginSecurityService;
     private final AppUserDetailsService appUserDetailsService;
     private final JwtService jwtService;
@@ -62,6 +64,7 @@ public class AccountApiController {
         SituationRepository situationRepository,
         ProjetAccessService projetAccessService,
         TotpService totpService,
+        MfaQrCodeService mfaQrCodeService,
         LoginSecurityService loginSecurityService,
         AppUserDetailsService appUserDetailsService,
         JwtService jwtService,
@@ -73,6 +76,7 @@ public class AccountApiController {
         this.situationRepository = situationRepository;
         this.projetAccessService = projetAccessService;
         this.totpService = totpService;
+        this.mfaQrCodeService = mfaQrCodeService;
         this.loginSecurityService = loginSecurityService;
         this.appUserDetailsService = appUserDetailsService;
         this.jwtService = jwtService;
@@ -163,11 +167,14 @@ public class AccountApiController {
             user.setMfaSecret(totpService.generateSecret());
             appUserRepository.save(user);
         }
+        boolean enabled = user.isMfaEnabled();
+        String otpauthUri = enabled ? null : totpService.buildOtpAuthUri(user, user.getMfaSecret());
         return new MfaSetupResponse(
-            user.isMfaEnabled(),
+            enabled,
             loginSecurityService.isSensitiveRole(user),
-            user.isMfaEnabled() ? null : user.getMfaSecret(),
-            totpService.buildOtpAuthUri(user, user.getMfaSecret())
+            enabled ? null : user.getMfaSecret(),
+            otpauthUri,
+            enabled ? null : mfaQrCodeService.buildSvg(otpauthUri)
         );
     }
 

@@ -10,4 +10,5 @@ public class MfaSetupResponse {
     private boolean requiredForRole;
     private String secret;
     private String otpauthUri;
+    private String qrSvg;
 }
