@@ -7,9 +7,11 @@ import com.example.situation.security.ProjetAccessService;
 import com.example.situation.security.ProjetAccessService.ProjetAccessScope;
 import com.example.situation.security.RemoteBeUrlValidator;
 import com.example.situation.service.AuditService;
+import com.example.situation.service.BeFileDownloadProgressService;
 import com.example.situation.service.BeFileService;
 import com.example.situation.service.OneDriveBatchImportService;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
@@ -45,6 +47,7 @@ public class BeFileController {
     private final ProjetAccessService projetAccessService;
     private final RemoteBeUrlValidator remoteBeUrlValidator;
     private final AuditService auditService;
+    private final BeFileDownloadProgressService downloadProgressService;
     private final RestClient restClient;
 
     public BeFileController(
@@ -53,7 +56,8 @@ public class BeFileController {
         OneDriveBatchImportService oneDriveBatchImportService,
         ProjetAccessService projetAccessService,
         RemoteBeUrlValidator remoteBeUrlValidator,
-        AuditService auditService
+        AuditService auditService,
+        BeFileDownloadProgressService downloadProgressService
     ) {
         this.situationRepository = situationRepository;
         this.beFileService = beFileService;
@@ -61,6 +65,7 @@ public class BeFileController {
         this.projetAccessService = projetAccessService;
         this.remoteBeUrlValidator = remoteBeUrlValidator;
         this.auditService = auditService;
+        this.downloadProgressService = downloadProgressService;
         this.restClient = RestClient.builder().build();
     }
 
@@ -68,6 +73,7 @@ public class BeFileController {
     public ResponseEntity<?> resolveBySituationId(
         @PathVariable Long id,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
+        @RequestParam(name = "downloadId", required = false) String downloadId,
         Authentication authentication,
         HttpServletResponse response
     ) throws IOException {
@@ -92,17 +98,17 @@ public class BeFileController {
         );
         if (situation.getBeUrl() != null && !situation.getBeUrl().isBlank()) {
             if (download) {
-                serveRemotePdf(situation.getBeUrl(), downloadFilename, true, response);
+                serveRemotePdf(situation.getBeUrl(), downloadFilename, true, downloadId, actor(authentication), response);
                 return null;
             }
             return redirectToCloud(situation.getBeUrl(), false);
         }
 
         if (situation.getBe() != null && !situation.getBe().isBlank()) {
-            return servePdf(situation.getBe(), downloadFilename, download, response);
+            return servePdf(situation.getBe(), downloadFilename, download, downloadId, actor(authentication), response);
         }
         if (situation.getNumeroOv() != null && !situation.getNumeroOv().isBlank()) {
-            return servePdf(situation.getNumeroOv(), downloadFilename, download, response);
+            return servePdf(situation.getNumeroOv(), downloadFilename, download, downloadId, actor(authentication), response);
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
@@ -141,6 +147,7 @@ public class BeFileController {
     public ResponseEntity<?> resolveByBeRef(
         @PathVariable String beRef,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
+        @RequestParam(name = "downloadId", required = false) String downloadId,
         Authentication authentication,
         HttpServletResponse response
     ) throws IOException {
@@ -156,7 +163,7 @@ public class BeFileController {
         if (situationOpt.isEmpty()) {
             if (scope == ProjetAccessScope.ALL) {
                 auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "beRef:" + beRef, "download=" + download);
-                return servePdf(beRef, beFileService.buildDownloadFilename(beRef), download, response);
+                return servePdf(beRef, beFileService.buildDownloadFilename(beRef), download, downloadId, actor(authentication), response);
             }
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -169,14 +176,28 @@ public class BeFileController {
 
         if (matchedSituation.getBeUrl() != null && !matchedSituation.getBeUrl().isBlank()) {
             if (download) {
-                serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true, response);
+                serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true, downloadId, actor(authentication), response);
                 return null;
             }
             return redirectToCloud(matchedSituation.getBeUrl(), false);
         }
 
         String localBeReference = firstNonBlank(matchedSituation.getBe(), matchedSituation.getNumeroOv(), beRef);
-        return servePdf(localBeReference, downloadFilename, download, response);
+        return servePdf(localBeReference, downloadFilename, download, downloadId, actor(authentication), response);
+    }
+
+    @GetMapping({
+        "/api/be-files/download-progress/{downloadId}",
+        "/api/v1/be-files/download-progress/{downloadId}"
+    })
+    public ResponseEntity<BeFileDownloadProgressService.ProgressSnapshot> downloadProgress(
+        @PathVariable String downloadId,
+        Authentication authentication
+    ) {
+        var snapshot = downloadProgressService.get(downloadId, actor(authentication));
+        return snapshot == null
+            ? ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+            : ResponseEntity.ok(snapshot);
     }
 
     @GetMapping({"/be-files/{beRef}/metadata", "/api/be-files/{beRef}/metadata", "/api/v1/be-files/{beRef}/metadata"})
@@ -220,12 +241,14 @@ public class BeFileController {
         String beRef,
         String downloadFilename,
         boolean download,
+        String downloadId,
+        String actor,
         HttpServletResponse response
     ) throws IOException {
         Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
         if (fileOpt.isPresent()) {
             if (download) {
-                serveLocalPdf(fileOpt.get(), downloadFilename, true, response);
+                serveLocalPdf(fileOpt.get(), downloadFilename, true, downloadId, actor, response);
                 return null;
             }
             return serveLocalPdf(fileOpt.get(), downloadFilename, download);
@@ -234,7 +257,7 @@ public class BeFileController {
         Optional<OneDriveBatchImportService.OneDriveFileDescriptor> cloudFile =
             oneDriveBatchImportService.findPdfByReference(beRef);
         if (cloudFile.isPresent()) {
-            serveOneDrivePdf(cloudFile.get(), downloadFilename, download, response);
+            serveOneDrivePdf(cloudFile.get(), downloadFilename, download, downloadId, actor, response);
             return null;
         }
 
@@ -293,16 +316,24 @@ public class BeFileController {
         Path file,
         String downloadFilename,
         boolean download,
+        String downloadId,
+        String actor,
         HttpServletResponse response
     ) throws IOException {
         if (!Files.isRegularFile(file)) {
             response.sendError(HttpStatus.NOT_FOUND.value());
             return;
         }
-        setPdfResponseHeaders(response, downloadFilename, download, Files.size(file));
+        long contentLength = Files.size(file);
+        setPdfResponseHeaders(response, downloadFilename, download, contentLength);
+        downloadProgressService.start(downloadId, actor, contentLength);
         try (var inputStream = Files.newInputStream(file)) {
-            StreamUtils.copy(inputStream, response.getOutputStream());
+            StreamUtils.copy(inputStream, progressStream(response.getOutputStream(), downloadId));
             response.flushBuffer();
+            downloadProgressService.complete(downloadId);
+        } catch (IOException ex) {
+            downloadProgressService.fail(downloadId, ex.getMessage());
+            throw ex;
         }
     }
 
@@ -310,17 +341,29 @@ public class BeFileController {
         OneDriveBatchImportService.OneDriveFileDescriptor fileDescriptor,
         String downloadFilename,
         boolean download,
+        String downloadId,
+        String actor,
         HttpServletResponse response
     ) throws IOException {
-        setPdfResponseHeaders(response, downloadFilename, download, toNullableLength(fileDescriptor.size()));
-        oneDriveBatchImportService.writeFileTo(fileDescriptor, response.getOutputStream());
-        response.flushBuffer();
+        Long contentLength = toNullableLength(fileDescriptor.size());
+        setPdfResponseHeaders(response, downloadFilename, download, contentLength);
+        downloadProgressService.start(downloadId, actor, contentLength);
+        try {
+            oneDriveBatchImportService.writeFileTo(fileDescriptor, progressStream(response.getOutputStream(), downloadId));
+            response.flushBuffer();
+            downloadProgressService.complete(downloadId);
+        } catch (RuntimeException | IOException ex) {
+            downloadProgressService.fail(downloadId, ex.getMessage());
+            throw ex;
+        }
     }
 
     private void serveRemotePdf(
         String beUrl,
         String downloadFilename,
         boolean download,
+        String downloadId,
+        String actor,
         HttpServletResponse response
     ) throws IOException {
         var target = remoteBeUrlValidator.validate(beUrl, download);
@@ -328,8 +371,15 @@ public class BeFileController {
 
         Long contentLength = fetchRemoteContentLength(target);
         setPdfResponseHeaders(response, downloadFilename, download, contentLength);
-        streamRemotePdf(target, response.getOutputStream());
-        response.flushBuffer();
+        downloadProgressService.start(downloadId, actor, contentLength);
+        try {
+            streamRemotePdf(target, progressStream(response.getOutputStream(), downloadId));
+            response.flushBuffer();
+            downloadProgressService.complete(downloadId);
+        } catch (RuntimeException | IOException ex) {
+            downloadProgressService.fail(downloadId, ex.getMessage());
+            throw ex;
+        }
     }
 
     private BeFileMetadataResponse resolveRemotePdfMetadata(String beUrl, String downloadFilename) {
@@ -394,6 +444,29 @@ public class BeFileController {
                 outputStream.flush();
                 return null;
             });
+    }
+
+    private OutputStream progressStream(OutputStream delegate, String downloadId) {
+        if (!BeFileDownloadProgressService.isValidDownloadId(downloadId)) {
+            return delegate;
+        }
+        return new FilterOutputStream(delegate) {
+            private long bytesWritten;
+
+            @Override
+            public void write(int b) throws IOException {
+                out.write(b);
+                bytesWritten++;
+                downloadProgressService.update(downloadId, bytesWritten);
+            }
+
+            @Override
+            public void write(byte[] b, int off, int len) throws IOException {
+                out.write(b, off, len);
+                bytesWritten += len;
+                downloadProgressService.update(downloadId, bytesWritten);
+            }
+        };
     }
 
     private ContentDisposition buildDisposition(String filename, boolean download) {
