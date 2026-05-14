@@ -9,6 +9,7 @@ import com.example.situation.security.RemoteBeUrlValidator;
 import com.example.situation.service.AuditService;
 import com.example.situation.service.BeFileService;
 import com.example.situation.service.OneDriveBatchImportService;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
@@ -32,7 +33,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 public class BeFileController {
@@ -68,7 +68,8 @@ public class BeFileController {
     public ResponseEntity<?> resolveBySituationId(
         @PathVariable Long id,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletResponse response
     ) throws IOException {
         ProjetAccessScope scope = projetAccessService.resolveScope(authentication);
         if (scope == ProjetAccessScope.NONE) {
@@ -90,16 +91,18 @@ public class BeFileController {
             firstNonBlank(situation.getBe(), situation.getNumeroOv(), id.toString())
         );
         if (situation.getBeUrl() != null && !situation.getBeUrl().isBlank()) {
-            return download
-                ? serveRemotePdf(situation.getBeUrl(), downloadFilename, true)
-                : redirectToCloud(situation.getBeUrl(), false);
+            if (download) {
+                serveRemotePdf(situation.getBeUrl(), downloadFilename, true, response);
+                return null;
+            }
+            return redirectToCloud(situation.getBeUrl(), false);
         }
 
         if (situation.getBe() != null && !situation.getBe().isBlank()) {
-            return servePdf(situation.getBe(), downloadFilename, download);
+            return servePdf(situation.getBe(), downloadFilename, download, response);
         }
         if (situation.getNumeroOv() != null && !situation.getNumeroOv().isBlank()) {
-            return servePdf(situation.getNumeroOv(), downloadFilename, download);
+            return servePdf(situation.getNumeroOv(), downloadFilename, download, response);
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
@@ -138,7 +141,8 @@ public class BeFileController {
     public ResponseEntity<?> resolveByBeRef(
         @PathVariable String beRef,
         @RequestParam(name = "download", defaultValue = "false") boolean download,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletResponse response
     ) throws IOException {
         ProjetAccessScope scope = projetAccessService.resolveScope(authentication);
         if (scope == ProjetAccessScope.NONE) {
@@ -152,7 +156,7 @@ public class BeFileController {
         if (situationOpt.isEmpty()) {
             if (scope == ProjetAccessScope.ALL) {
                 auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "beRef:" + beRef, "download=" + download);
-                return servePdf(beRef, beFileService.buildDownloadFilename(beRef), download);
+                return servePdf(beRef, beFileService.buildDownloadFilename(beRef), download, response);
             }
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -164,13 +168,15 @@ public class BeFileController {
         auditService.logSensitiveAction("BE_FILE_ACCESS", actor(authentication), "beRef:" + beRef, "download=" + download);
 
         if (matchedSituation.getBeUrl() != null && !matchedSituation.getBeUrl().isBlank()) {
-            return download
-                ? serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true)
-                : redirectToCloud(matchedSituation.getBeUrl(), false);
+            if (download) {
+                serveRemotePdf(matchedSituation.getBeUrl(), downloadFilename, true, response);
+                return null;
+            }
+            return redirectToCloud(matchedSituation.getBeUrl(), false);
         }
 
         String localBeReference = firstNonBlank(matchedSituation.getBe(), matchedSituation.getNumeroOv(), beRef);
-        return servePdf(localBeReference, downloadFilename, download);
+        return servePdf(localBeReference, downloadFilename, download, response);
     }
 
     @GetMapping({"/be-files/{beRef}/metadata", "/api/be-files/{beRef}/metadata", "/api/v1/be-files/{beRef}/metadata"})
@@ -210,16 +216,26 @@ public class BeFileController {
             .build();
     }
 
-    private ResponseEntity<?> servePdf(String beRef, String downloadFilename, boolean download) throws IOException {
+    private ResponseEntity<?> servePdf(
+        String beRef,
+        String downloadFilename,
+        boolean download,
+        HttpServletResponse response
+    ) throws IOException {
         Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
         if (fileOpt.isPresent()) {
+            if (download) {
+                serveLocalPdf(fileOpt.get(), downloadFilename, true, response);
+                return null;
+            }
             return serveLocalPdf(fileOpt.get(), downloadFilename, download);
         }
 
         Optional<OneDriveBatchImportService.OneDriveFileDescriptor> cloudFile =
             oneDriveBatchImportService.findPdfByReference(beRef);
         if (cloudFile.isPresent()) {
-            return serveOneDrivePdf(cloudFile.get(), downloadFilename, download);
+            serveOneDrivePdf(cloudFile.get(), downloadFilename, download, response);
+            return null;
         }
 
         log.warn("BE file not found for reference='{}'.", beRef);
@@ -273,26 +289,47 @@ public class BeFileController {
             .body(resource);
     }
 
-    private ResponseEntity<StreamingResponseBody> serveOneDrivePdf(
-        OneDriveBatchImportService.OneDriveFileDescriptor fileDescriptor,
+    private void serveLocalPdf(
+        Path file,
         String downloadFilename,
-        boolean download
-    ) {
-        StreamingResponseBody body = outputStream -> oneDriveBatchImportService.writeFileTo(fileDescriptor, outputStream);
-
-        return pdfResponse(downloadFilename, download, toNullableLength(fileDescriptor.size()))
-            .body(body);
+        boolean download,
+        HttpServletResponse response
+    ) throws IOException {
+        if (!Files.isRegularFile(file)) {
+            response.sendError(HttpStatus.NOT_FOUND.value());
+            return;
+        }
+        setPdfResponseHeaders(response, downloadFilename, download, Files.size(file));
+        try (var inputStream = Files.newInputStream(file)) {
+            StreamUtils.copy(inputStream, response.getOutputStream());
+            response.flushBuffer();
+        }
     }
 
-    private ResponseEntity<StreamingResponseBody> serveRemotePdf(String beUrl, String downloadFilename, boolean download) {
+    private void serveOneDrivePdf(
+        OneDriveBatchImportService.OneDriveFileDescriptor fileDescriptor,
+        String downloadFilename,
+        boolean download,
+        HttpServletResponse response
+    ) throws IOException {
+        setPdfResponseHeaders(response, downloadFilename, download, toNullableLength(fileDescriptor.size()));
+        oneDriveBatchImportService.writeFileTo(fileDescriptor, response.getOutputStream());
+        response.flushBuffer();
+    }
+
+    private void serveRemotePdf(
+        String beUrl,
+        String downloadFilename,
+        boolean download,
+        HttpServletResponse response
+    ) throws IOException {
         var target = remoteBeUrlValidator.validate(beUrl, download);
         log.info("Streaming remote BE from approved host='{}' with download filename='{}'", target.getHost(), downloadFilename);
 
         Long contentLength = fetchRemoteContentLength(target);
-        StreamingResponseBody body = outputStream -> streamRemotePdf(target, outputStream);
-
-        return pdfResponse(downloadFilename, download, contentLength)
-            .body(body);
+        setPdfResponseHeaders(response, downloadFilename, download, contentLength);
+        streamRemotePdf(target, response.getOutputStream());
+        response.flushBuffer();
     }
 
     private BeFileMetadataResponse resolveRemotePdfMetadata(String beUrl, String downloadFilename) {
@@ -324,14 +361,18 @@ public class BeFileController {
         return new BeFileMetadataResponse(fileName, contentLength, source);
     }
 
-    private ResponseEntity.BodyBuilder pdfResponse(String downloadFilename, boolean download, Long contentLength) {
-        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
-            .contentType(MediaType.APPLICATION_PDF)
-            .header(HttpHeaders.CONTENT_DISPOSITION, buildDisposition(downloadFilename, download).toString());
+    private void setPdfResponseHeaders(
+        HttpServletResponse response,
+        String downloadFilename,
+        boolean download,
+        Long contentLength
+    ) {
+        response.setStatus(HttpStatus.OK.value());
+        response.setContentType(MediaType.APPLICATION_PDF_VALUE);
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, buildDisposition(downloadFilename, download).toString());
         if (contentLength != null && contentLength > 0) {
-            builder.contentLength(contentLength);
+            response.setContentLengthLong(contentLength);
         }
-        return builder;
     }
 
     private void streamRemotePdf(URI target, OutputStream outputStream) {
