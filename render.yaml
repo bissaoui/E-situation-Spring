@@ -25,6 +25,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
       - key: APP_ADMIN_PASSWORD
         sync: false
       - key: APP_USER_PASSWORD

@@ -7,6 +7,7 @@ import com.azure.identity.ClientSecretCredentialBuilder;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -135,6 +136,21 @@ public class OneDriveBatchImportService {
         return new ByteArrayInputStream(payload);
     }
 
+    public void writeFileTo(OneDriveFileDescriptor fileDescriptor, OutputStream outputStream) {
+        restClient.get()
+            .uri(buildContentUri(fileDescriptor.itemId()))
+            .headers(headers -> headers.setBearerAuth(accessToken()))
+            .exchange((request, response) -> {
+                writeContentPayload(
+                    response.getStatusCode(),
+                    response.getHeaders().getLocation(),
+                    response.getBody(),
+                    outputStream
+                );
+                return null;
+            });
+    }
+
     private byte[] readContentPayload(HttpStatusCode statusCode, URI redirectLocation, InputStream responseBody) {
         if (statusCode.is3xxRedirection()) {
             if (redirectLocation == null) {
@@ -152,6 +168,30 @@ public class OneDriveBatchImportService {
         }
     }
 
+    private void writeContentPayload(
+        HttpStatusCode statusCode,
+        URI redirectLocation,
+        InputStream responseBody,
+        OutputStream outputStream
+    ) {
+        if (statusCode.is3xxRedirection()) {
+            if (redirectLocation == null) {
+                throw new IllegalStateException("OneDrive content request redirected without a download URL.");
+            }
+            writeFromRedirect(redirectLocation, outputStream);
+            return;
+        }
+        if (!statusCode.is2xxSuccessful()) {
+            throw new IllegalStateException("OneDrive content request failed with status: " + statusCode.value());
+        }
+        try {
+            StreamUtils.copy(responseBody, outputStream);
+            outputStream.flush();
+        } catch (Exception ex) {
+            throw new IllegalStateException("Could not stream OneDrive file response body.", ex);
+        }
+    }
+
     private byte[] downloadFromRedirect(URI redirectLocation) {
         byte[] payload = restClient.get()
             .uri(redirectLocation)
@@ -162,6 +202,23 @@ public class OneDriveBatchImportService {
             throw new IllegalStateException("OneDrive redirected to an empty download payload.");
         }
         return payload;
+    }
+
+    private void writeFromRedirect(URI redirectLocation, OutputStream outputStream) {
+        restClient.get()
+            .uri(redirectLocation)
+            .exchange((request, response) -> {
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    throw new IllegalStateException("OneDrive redirected download failed with status: " + response.getStatusCode().value());
+                }
+                try {
+                    StreamUtils.copy(response.getBody(), outputStream);
+                    outputStream.flush();
+                } catch (Exception ex) {
+                    throw new IllegalStateException("Could not stream OneDrive redirected download.", ex);
+                }
+                return null;
+            });
     }
 
     private List<GraphDriveItem> listFolderChildren(String normalizedFolderPath) {

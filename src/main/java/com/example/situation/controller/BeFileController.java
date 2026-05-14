@@ -10,14 +10,14 @@ import com.example.situation.service.AuditService;
 import com.example.situation.service.BeFileService;
 import com.example.situation.service.OneDriveBatchImportService;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.ContentDisposition;
@@ -26,11 +26,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 public class BeFileController {
@@ -208,7 +210,7 @@ public class BeFileController {
             .build();
     }
 
-    private ResponseEntity<Resource> servePdf(String beRef, String downloadFilename, boolean download) throws IOException {
+    private ResponseEntity<?> servePdf(String beRef, String downloadFilename, boolean download) throws IOException {
         Optional<Path> fileOpt = beFileService.resolvePdf(beRef);
         if (fileOpt.isPresent()) {
             return serveLocalPdf(fileOpt.get(), downloadFilename, download);
@@ -271,44 +273,26 @@ public class BeFileController {
             .body(resource);
     }
 
-    private ResponseEntity<Resource> serveOneDrivePdf(
+    private ResponseEntity<StreamingResponseBody> serveOneDrivePdf(
         OneDriveBatchImportService.OneDriveFileDescriptor fileDescriptor,
         String downloadFilename,
         boolean download
-    ) throws IOException {
-        byte[] payload;
-        try (InputStream inputStream = oneDriveBatchImportService.downloadFile(fileDescriptor)) {
-            payload = inputStream.readAllBytes();
-        }
-        if (payload.length == 0) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
+    ) {
+        StreamingResponseBody body = outputStream -> oneDriveBatchImportService.writeFileTo(fileDescriptor, outputStream);
 
-        return ResponseEntity.ok()
-            .contentType(MediaType.APPLICATION_PDF)
-            .contentLength(payload.length)
-            .header(HttpHeaders.CONTENT_DISPOSITION, buildDisposition(downloadFilename, download).toString())
-            .body(new ByteArrayResource(payload));
+        return pdfResponse(downloadFilename, download, toNullableLength(fileDescriptor.size()))
+            .body(body);
     }
 
-    private ResponseEntity<Resource> serveRemotePdf(String beUrl, String downloadFilename, boolean download) {
+    private ResponseEntity<StreamingResponseBody> serveRemotePdf(String beUrl, String downloadFilename, boolean download) {
         var target = remoteBeUrlValidator.validate(beUrl, download);
         log.info("Streaming remote BE from approved host='{}' with download filename='{}'", target.getHost(), downloadFilename);
 
-        byte[] payload = restClient.get()
-            .uri(target)
-            .retrieve()
-            .body(byte[].class);
+        Long contentLength = fetchRemoteContentLength(target);
+        StreamingResponseBody body = outputStream -> streamRemotePdf(target, outputStream);
 
-        if (payload == null || payload.length == 0) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
-
-        return ResponseEntity.ok()
-            .contentType(MediaType.APPLICATION_PDF)
-            .contentLength(payload.length)
-            .header(HttpHeaders.CONTENT_DISPOSITION, buildDisposition(downloadFilename, download).toString())
-            .body(new ByteArrayResource(payload));
+        return pdfResponse(downloadFilename, download, contentLength)
+            .body(body);
     }
 
     private BeFileMetadataResponse resolveRemotePdfMetadata(String beUrl, String downloadFilename) {
@@ -338,6 +322,37 @@ public class BeFileController {
 
     private BeFileMetadataResponse buildMetadataResponse(String fileName, Long contentLength, String source) {
         return new BeFileMetadataResponse(fileName, contentLength, source);
+    }
+
+    private ResponseEntity.BodyBuilder pdfResponse(String downloadFilename, boolean download, Long contentLength) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION, buildDisposition(downloadFilename, download).toString());
+        if (contentLength != null && contentLength > 0) {
+            builder.contentLength(contentLength);
+        }
+        return builder;
+    }
+
+    private void streamRemotePdf(URI target, OutputStream outputStream) {
+        restClient.get()
+            .uri(target)
+            .exchange((request, response) -> {
+                if (response.getStatusCode().is3xxRedirection()) {
+                    URI redirectLocation = response.getHeaders().getLocation();
+                    if (redirectLocation == null) {
+                        throw new IllegalStateException("Remote BE redirected without a location.");
+                    }
+                    streamRemotePdf(redirectLocation, outputStream);
+                    return null;
+                }
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    throw new IllegalStateException("Remote BE download failed with status: " + response.getStatusCode().value());
+                }
+                StreamUtils.copy(response.getBody(), outputStream);
+                outputStream.flush();
+                return null;
+            });
     }
 
     private ContentDisposition buildDisposition(String filename, boolean download) {
