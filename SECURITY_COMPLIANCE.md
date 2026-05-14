@@ -1,13 +1,13 @@
 # Security Compliance Status Report
 
-Date: 2026-05-13
+Date: 2026-05-14
 
 Scope:
 - Backend reviewed in this repository: `C:\Users\YassineBISSAOUI\Spring boot Project`
 - Frontend/mobile reviewed in companion repository: `C:\E-Situation`
 
 Method:
-- Static code and configuration review, followed by an implementation remediation pass on 2026-05-13
+- Static code and configuration review, followed by implementation remediation passes on 2026-05-13 and 2026-05-14
 - No legal certification, infrastructure-console review, live penetration test, malware scanning, SIEM review, or CNDP/DGSSI filing verification
 - Findings below distinguish between `Implemented`, `Partial`, `Missing`, and `No evidence found`
 
@@ -18,14 +18,16 @@ Current status: not ready to claim compliance with CNDP / Law 09-08, DGSSI / Law
 Implemented in the remediation pass:
 - Web `localStorage` session storage was removed from the Expo client. Web now uses in-memory session state, while native uses `SecureStore`.
 - Backend access tokens were reduced to 15 minutes, with server-side refresh-token issuance, rotation, revocation, and cleanup.
-- MFA/TOTP enrollment and verification flow was added for sensitive roles, including a setup-pending token path.
+- MFA/TOTP enrollment and verification flow was added for sensitive roles, including a setup-pending token path, QR-code enrollment, and authenticator-compatible SHA1 provisioning with legacy SHA256 verification fallback.
 - Login lockout/backoff and a tighter auth-specific rate limit were added.
+- Selected sensitive `Situation` string, amount, and date fields now use application-layer AES-GCM field encryption at rest, with startup schema repair and migration of legacy plaintext rows.
 - Browser pages moved to external CSS/JS so a stricter CSP and other security headers can be enforced.
 - Privacy notice exposure, account data export, deletion-request recording, privacy acknowledgement, audit logging, API versioning aliases, and data-classification/docs scaffolding were added.
+- Legacy PostgreSQL auth-schema repair for `app_user` and `refresh_token` was added to reduce rollout failures while a formal migration framework is still recommended.
 - Android cleartext traffic was disabled and the webpack dev wildcard relaxations were removed.
 
 Highest-risk remaining gaps:
-- Sensitive business and personal data is still not encrypted at rest with field-level cryptography.
+- Some query-critical `Situation` columns (`be`, `numeroOv`, `situation`, `projet`) still remain plaintext by design to preserve lookups and scoping; if they are classified as sensitive, a searchable-tokenization strategy is still needed.
 - File uploads still do not have malware scanning.
 - Web auth does not yet use `HttpOnly` cookies; it now avoids persistent browser storage but still relies on bearer tokens in JS memory.
 - Consent banner / withdrawal UX for non-essential client-side collection is still not implemented.
@@ -36,14 +38,16 @@ Controls already present:
 - JPA / repository patterns are used instead of raw SQL concatenation.
 - Role and project-scope authorization exists for situation access.
 - Backend input sanitization and bean validation are present.
+- Selected sensitive `Situation` string, amount, and date fields are now encrypted at rest with application-layer AES-GCM, and legacy plaintext rows are migrated on startup.
 - Native mobile uses Expo SecureStore instead of plain storage, and web no longer persists tokens in `localStorage`.
 - Login UX uses a generic invalid-credentials message.
+- MFA setup now supports QR-code enrollment with manual-secret fallback, and the backend accepts both new SHA1 and legacy SHA256 TOTP codes during the migration window.
 
 ## Highest Priority Findings
 
 | Severity | Area | Finding | Evidence |
 |---|---|---|---|
-| High | Backend/Crypto | Sensitive financial/personal fields are still stored without field-level encryption at rest. | `Situation` entity fields remain plain JPA columns. |
+| Medium | Backend/Crypto | Sensitive `Situation` string, amount, and date fields are now encrypted at rest, but query-critical columns such as `be`, `numeroOv`, `situation`, and `projet` remain plaintext by design and a dedicated key-rotation procedure is still not evidenced. | `Situation` now encrypts selected string, amount, and date fields; lookup/scope columns remain plain for queries. |
 | High | Backend/File Upload | Import flow now validates extension/MIME/size, but malware scanning is still not integrated. | `SituationImportService` validates upload metadata; no AV service is present. |
 | High | Frontend/Auth | Web no longer uses `localStorage`, but browser auth still relies on bearer tokens in JS memory instead of `HttpOnly` cookies. | `C:\E-Situation\src\network\apiClient.ts` |
 | Medium | Backend/OWASP A10 SSRF | Remote BE fetching is now allowlisted and HTTPS-only, but it still depends on remote host governance and DNS trust. | `RemoteBeUrlValidator`, `BeFileController` |
@@ -58,7 +62,7 @@ Controls already present:
 | Requirement | Status | Notes / Evidence |
 |---|---|---|
 | Strong password hashing with bcrypt cost >= 12 or argon2id | Implemented | bcrypt is configured with strength 12 in `SecurityConfig`. |
-| MFA for admin and sensitive routes | Partial | TOTP-based MFA enrollment and verification were added for sensitive roles, including setup-pending handling. Recovery-factor and organizational rollout still need completion. |
+| MFA for admin and sensitive routes | Partial | TOTP-based MFA enrollment and verification were added for sensitive roles, including setup-pending handling, QR-code onboarding, and SHA1/SHA256 compatibility. Recovery-factor and organizational rollout still need completion. |
 | JWT <= 15 min plus refresh-token rotation | Implemented | Access tokens now default to 900 seconds and refresh tokens are issued, rotated, revoked, and cleaned up server-side. |
 | RBAC on protected endpoints | Partial | Stronger than basic RBAC in some areas: admin-only user APIs and project-scope access for situations. `src/main/java/com/example/situation/security/ProjetAccessService.java:20`, `:26`, `:38`; `src/main/java/com/example/situation/controller/SituationApiController.java:55`, `:74`, `:129` |
 | Lock after 5 failed logins; backoff or CAPTCHA | Implemented | Failed-attempt tracking and timed lockouts were added. CAPTCHA is still not implemented, but exponential lock windows and auth rate limits are now present. |
@@ -87,10 +91,10 @@ Controls already present:
 
 | Requirement | Status | Notes / Evidence |
 |---|---|---|
-| Encrypt sensitive data at rest | Missing | No entity converters, KMS integration, or field-level encryption evidenced for financial/personal data in `Situation`. |
+| Encrypt sensitive data at rest | Partial | Selected sensitive `Situation` string, amount, and date fields now use application-layer AES-GCM encryption with legacy-row migration; lookup/scoping fields such as `be`, `numeroOv`, `situation`, and `projet` remain plaintext by design. |
 | Encrypt data in transit (TLS 1.2+/1.3) | Partial | Expected at hosting edge, but no code-level enforcement or transport policy is evidenced here. |
 | Hash passwords only | Implemented | Passwords are hashed and plaintext seed-password logging was removed. |
-| Field-level encryption for sensitive PII | Missing | No field-level encryption implementation found. |
+| Field-level encryption for sensitive PII | Partial | `Situation` now uses field-level encryption on selected string, amount, and date fields such as beneficiary, expense-description, payment amounts, and payment dates; query-critical identifiers and scope columns remain plaintext by design. |
 | Never log sensitive data | Partial | Plaintext temporary password logging was removed and BE logging was reduced, but a full sensitive-log review should still continue as new features are added. |
 
 ### Session Management
@@ -136,7 +140,7 @@ Controls already present:
 
 | Requirement | Status | Notes / Evidence |
 |---|---|---|
-| Validate all form fields client-side and server-side | Implemented | Login/password/MFA flows now have stronger client and server validation, including 12-character password policy and OTP formatting. |
+| Validate all form fields client-side and server-side | Implemented | Login/password/MFA flows now have stronger client and server validation, including 12-character password policy, OTP formatting, and QR-assisted MFA enrollment with manual fallback. |
 | CSRF tokens on state-changing forms | Partial / architecture-dependent | Backend keeps CSRF enabled for browser pages but explicitly ignores `/api/**`. Mobile app uses bearer tokens rather than cookies, so CSRF is less relevant there, but no browser API CSRF layer exists. `src/main/java/com/example/situation/config/SecurityConfig.java:40` |
 | Tell users what data is collected and why | Implemented | Privacy-purpose disclosure was added to login/settings/browser forms and a privacy page was added. |
 | Visible privacy notice link on every data collection form | Implemented | Privacy notice links/actions were added to browser forms and the mobile login/settings flows. |
@@ -206,7 +210,7 @@ Assumption note:
 | DGSSI-certified security audit before production | No evidence found | Not evidenced in repo. |
 | Annual penetration testing and pre-release testing | No evidence found | Not evidenced in repo. |
 | DGSSI ASVF / audit checklist usage | No evidence found | Not evidenced in repo. |
-| DGSSI-approved crypto algorithms | Partial | AES-256 field encryption is not implemented; JWT signing is HMAC-based; no prohibited custom crypto found in reviewed code. |
+| DGSSI-approved crypto algorithms | Partial | Application-layer AES-GCM field encryption is now present for selected string, amount, and date fields, but key-management hardening, explicit rotation procedures, and full algorithm/hosting approval remain incomplete. |
 | TLS 1.3 and legacy protocol disablement | No evidence found | Usually enforced at ingress/load balancer; not evidenced in repo. |
 
 ## OWASP Top 10 Mapping
@@ -214,7 +218,7 @@ Assumption note:
 | OWASP Area | Status | Notes |
 |---|---|---|
 | Broken Access Control | Partial | Project-scope controls remain strong; classification-aware access policy is still a future enhancement. |
-| Cryptographic Failures | Medium/High | Access-token lifetime, refresh rotation, and browser storage risks were reduced, but at-rest encryption is still missing. |
+| Cryptographic Failures | Medium | Access-token lifetime, refresh rotation, MFA hardening, and at-rest encryption coverage were improved, but web cookie-hardening and formal key-rotation procedures remain incomplete. |
 | Injection | Partial | SQL injection posture is good and SSRF was constrained with allowlisting, but file scanning and broader remote-governance concerns remain. |
 | Insecure Design | Partial | MFA, user-rights flows, processing docs, and retention docs were improved; formal consent and legal process work remains. |
 | Security Misconfiguration | Partial | Major headers, versioning, cleartext Android, and dev wildcard settings were fixed; Swagger exposure and hosting-edge controls still need review. |
@@ -228,11 +232,11 @@ Assumption note:
 
 ### Immediate (0 to 14 days)
 
-1. Implement field-level encryption at rest for sensitive PII and financial fields.
-2. Integrate real malware scanning for imported/uploaded files.
-3. Decide whether web auth should move from bearer tokens in memory to `HttpOnly` cookie sessions.
-4. Add consent banner / withdrawal UX for non-essential browser-side collection where applicable.
-5. Review Swagger/OpenAPI exposure and hosting-edge HTTPS/TLS enforcement in production.
+1. Integrate real malware scanning for imported/uploaded files.
+2. Decide whether web auth should move from bearer tokens in memory to `HttpOnly` cookie sessions.
+3. Add consent banner / withdrawal UX for non-essential browser-side collection where applicable.
+4. Review Swagger/OpenAPI exposure and hosting-edge HTTPS/TLS enforcement in production.
+5. Document `DATA_ENCRYPTION_KEY` rotation/re-encryption procedures and explicitly classify the remaining plaintext query/scoping columns.
 
 ### Near Term (15 to 45 days)
 
@@ -241,6 +245,7 @@ Assumption note:
 3. Extend audit feeds into SIEM/anomaly monitoring.
 4. Add backup/restore drills and hosting failover validation.
 5. Review browser controllers for the same generic-error discipline already applied to the APIs.
+6. Replace the temporary startup auth-schema repair path with formal database migrations (`Flyway` or `Liquibase`) for future releases.
 
 ### Compliance and Governance (30 to 60 days)
 
@@ -253,11 +258,11 @@ Assumption note:
 ## Suggested Definition of Done Before Production Claim
 
 The project should not be described as CNDP/DGSSI compliant until, at minimum:
-- browser tokens are no longer stored in `localStorage`
+- browser auth no longer relies on JS-accessible bearer tokens; web sessions use hardened `HttpOnly; Secure; SameSite=Strict` cookies
 - MFA, short-lived access tokens, refresh rotation, and revocation are in place
 - SSRF path is removed or allowlisted
 - security headers and HTTPS/HSTS posture are enforced
-- sensitive fields are encrypted at rest
+- sensitive fields are encrypted at rest and any remaining plaintext lookup columns are explicitly justified
 - audit logging exists for sensitive actions
 - privacy notice, consent handling, retention policy, and user-rights flows exist
 - data-classification, incident response, and operational monitoring are documented and active
@@ -265,6 +270,6 @@ The project should not be described as CNDP/DGSSI compliant until, at minimum:
 
 ## Review Limitations
 
-- This report is based on repository contents available on 2026-05-13.
+- This report is based on repository contents available on 2026-05-14.
 - `NO_MATCH` means the control was not found in the reviewed code/config, not that it definitively does not exist in an external platform.
 - Operational controls such as SIEM, WAF, backups, key custody, CNDP filings, and DGSSI-certified audits must be validated outside the source code.

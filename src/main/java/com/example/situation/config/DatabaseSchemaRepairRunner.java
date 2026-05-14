@@ -24,13 +24,21 @@ public class DatabaseSchemaRepairRunner implements CommandLineRunner {
     @Override
     public void run(String... args) {
         try {
-            if (!tableExists("app_user")) {
-                log.info("Schema repair skipped because table 'app_user' is not present yet.");
+            boolean hasAppUser = tableExists("app_user");
+            boolean hasSituation = tableExists("situation");
+
+            if (!hasAppUser && !hasSituation) {
+                log.info("Schema repair skipped because no target tables are present yet.");
                 return;
             }
 
-            repairAppUserTable();
-            repairRefreshTokenTable();
+            if (hasAppUser) {
+                repairAppUserTable();
+                repairRefreshTokenTable();
+            }
+            if (hasSituation) {
+                repairSituationTable();
+            }
         } catch (DataAccessException ex) {
             throw new IllegalStateException(
                 "Database schema repair failed. The deployed PostgreSQL schema is missing required auth/MFA columns or tables.",
@@ -88,9 +96,29 @@ public class DatabaseSchemaRepairRunner implements CommandLineRunner {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS \"idx_refresh_token_expires\" ON \"refresh_token\" (\"expires_at\")");
     }
 
+    private void repairSituationTable() {
+        alterColumnType("beneficaire", "varchar(768)");
+        alterColumnType("date_op", "varchar(256)");
+        alterColumnType("cheque", "varchar(512)");
+        alterColumnType("montant_ov/cheque", "varchar(256)");
+        alterColumnType("budget", "varchar(512)");
+        alterColumnType("rubrique_budg", "varchar(512)");
+        alterColumnType("n\u00e2\u00b0_op", "varchar(512)");
+        alterColumnType("montant_op", "varchar(256)");
+        alterColumnType("objet_d\u00e3\u00a9pense", "varchar(768)");
+        alterColumnType("annee_d'origine", "varchar(256)");
+        alterColumnType("date_virement", "varchar(256)");
+    }
+
     private void addColumnIfMissing(String tableName, String columnName, String definition) {
         jdbcTemplate.execute(
             "ALTER TABLE \"" + tableName + "\" ADD COLUMN IF NOT EXISTS \"" + columnName + "\" " + definition
+        );
+    }
+
+    private void alterColumnType(String columnName, String type) {
+        jdbcTemplate.execute(
+            "ALTER TABLE \"situation\" ALTER COLUMN \"" + columnName + "\" TYPE " + type
         );
     }
 

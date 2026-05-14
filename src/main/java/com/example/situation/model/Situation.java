@@ -2,7 +2,11 @@ package com.example.situation.model;
 
 import com.example.situation.compliance.DataClassification;
 import com.example.situation.compliance.DataClassificationLevel;
+import com.example.situation.security.EncryptedBigDecimalAttributeConverter;
+import com.example.situation.security.EncryptedLocalDateAttributeConverter;
+import com.example.situation.security.EncryptedStringAttributeConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -32,65 +36,76 @@ public class Situation {
 
     @NotBlank
     @Size(max = 255)
-    @Column(name = "BENEFICAIRE", nullable = false)
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "beneficaire", nullable = false, length = 768)
     private String beneficiaire;
 
     @Size(max = 50)
-    @Column(name = "BE")
+    @Column(name = "be")
     private String be;
 
-    @Column(name = "DATE_OP")
+    @Convert(converter = EncryptedLocalDateAttributeConverter.class)
+    @Column(name = "date_op", length = 256)
     private LocalDate dateOp;
 
     @Size(max = 100)
-    @Column(name = "NÂ°_OV")
+    @Column(name = "n\u00e2\u00b0_ov")
     private String numeroOv;
 
     @Size(max = 100)
-    @Column(name = "CHEQUE")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "cheque", length = 512)
     private String cheque;
 
     @DecimalMin(value = "0.0", inclusive = true)
-    @Column(name = "MONTANT_OV/CHEQUE", precision = 19, scale = 2)
+    @Convert(converter = EncryptedBigDecimalAttributeConverter.class)
+    @Column(name = "montant_ov/cheque", length = 256)
     private BigDecimal montantOvCheque;
 
     @Size(max = 100)
-    @Column(name = "BUDGET")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "budget", length = 512)
     private String budget;
 
     @Size(max = 100)
-    @Column(name = "Rubrique_budg")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "rubrique_budg", length = 512)
     private String rubriqueBudg;
 
     @Size(max = 100)
-    @Column(name = "NÂ°_OP")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "n\u00e2\u00b0_op", length = 512)
     private String numeroOp;
 
     @DecimalMin(value = "0.0", inclusive = true)
-    @Column(name = "Montant_OP", precision = 19, scale = 2)
+    @Convert(converter = EncryptedBigDecimalAttributeConverter.class)
+    @Column(name = "montant_op", length = 256)
     private BigDecimal montantOp;
 
     @Size(max = 255)
-    @Column(name = "Objet_dÃ©pense")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "objet_d\u00e3\u00a9pense", length = 768)
     private String objetDepense;
 
     @Size(max = 30)
-    @Column(name = "ANNEE_D'ORIGINE")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "annee_d'origine", length = 256)
     private String anneeOrigine;
 
     @Size(max = 100)
-    @Column(name = "Situation")
+    @Column(name = "situation")
     private String situation;
 
-    @Column(name = "Date_Virement")
+    @Convert(converter = EncryptedLocalDateAttributeConverter.class)
+    @Column(name = "date_virement", length = 256)
     private LocalDate dateVirement;
 
     @Size(max = 120)
-    @Column(name = "Projet")
+    @Column(name = "projet")
     private String projet;
 
     @Size(max = 1000)
     @Pattern(regexp = "^(https://.*)?$", message = "beUrl must start with https://")
-    @Column(name = "BE_URL")
+    @Column(name = "be_url")
     private String beUrl;
 }
