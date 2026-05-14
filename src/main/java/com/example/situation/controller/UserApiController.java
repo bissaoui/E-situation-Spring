@@ -5,6 +5,7 @@ import com.example.situation.repository.AppUserRepository;
 import com.example.situation.security.ModelSanitizer;
 import com.example.situation.service.AuditService;
 import com.example.situation.service.PasswordPolicyService;
+import com.example.situation.service.RefreshTokenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -34,6 +35,7 @@ public class UserApiController {
     private final PasswordEncoder passwordEncoder;
     private final ModelSanitizer modelSanitizer;
     private final PasswordPolicyService passwordPolicyService;
+    private final RefreshTokenService refreshTokenService;
     private final AuditService auditService;
 
     public UserApiController(
@@ -41,12 +43,14 @@ public class UserApiController {
         PasswordEncoder passwordEncoder,
         ModelSanitizer modelSanitizer,
         PasswordPolicyService passwordPolicyService,
+        RefreshTokenService refreshTokenService,
         AuditService auditService
     ) {
         this.appUserRepository = appUserRepository;
         this.passwordEncoder = passwordEncoder;
         this.modelSanitizer = modelSanitizer;
         this.passwordPolicyService = passwordPolicyService;
+        this.refreshTokenService = refreshTokenService;
         this.auditService = auditService;
     }
 
@@ -101,6 +105,25 @@ public class UserApiController {
         }
         AppUser saved = appUserRepository.save(existing);
         auditService.logSensitiveAction("USER_UPDATED", actor(authentication), saved.getUsername(), saved.getRole());
+        return saved;
+    }
+
+    @PostMapping("/{id}/mfa/reset")
+    @Operation(summary = "Reset MFA QR code for a user (admin only)")
+    public AppUser resetMfa(@PathVariable @Positive Long id, Authentication authentication) {
+        AppUser existing = appUserRepository.findById(id)
+            .orElseThrow(() -> new IllegalArgumentException("Invalid user id: " + id));
+
+        existing.setMfaEnabled(false);
+        existing.setMfaSecret(null);
+        AppUser saved = appUserRepository.save(existing);
+        refreshTokenService.revokeAllForUser(saved);
+        auditService.logSensitiveAction(
+            "USER_MFA_RESET",
+            actor(authentication),
+            saved.getUsername(),
+            "Admin reset the MFA QR code and revoked active refresh tokens."
+        );
         return saved;
     }
 

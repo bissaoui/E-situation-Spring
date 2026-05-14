@@ -68,6 +68,20 @@ public class RefreshTokenService {
         refreshTokenRepository.save(token);
     }
 
+    @Transactional
+    public void revokeAllForUser(AppUser user) {
+        if (user == null) {
+            return;
+        }
+
+        Instant now = Instant.now();
+        for (RefreshToken token : refreshTokenRepository.findByUser(user)) {
+            if (token.getRevokedAt() == null) {
+                token.setRevokedAt(now);
+            }
+        }
+    }
+
     public long getRefreshExpirationSeconds() {
         return refreshExpirationSeconds;
     }
